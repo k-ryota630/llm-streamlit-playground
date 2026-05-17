@@ -1,6 +1,10 @@
 import os
+import time
 import hmac
 import streamlit as st
+
+# 無操作でこの秒数を超えたら自動ログアウト（必要に応じて変更）
+IDLE_TIMEOUT_SECONDS = 30 * 60
 
 try:
     from openai import OpenAI
@@ -22,8 +26,10 @@ def get_secret(name: str):
     return os.getenv(name)
 
 
-def check_password() -> bool:
-    """シークレットに格納した APP_PASSWORD と照合する基本的なゲート。"""
+def render_login():
+    """中央のポップアップ（背景うす暗）でパスワード入力させる。
+    st.dialog が無い古い Streamlit では簡易フォームに自動で切り替える。
+    """
     expected = get_secret("APP_PASSWORD")
     if not expected:
         st.error(
@@ -31,28 +37,54 @@ def check_password() -> bool:
         )
         st.stop()
 
-    def password_entered():
-        entered = st.session_state.get("password", "")
-        # タイミング攻撃を避けるため定数時間比較を使う
-        if hmac.compare_digest(str(entered), str(expected)):
-            st.session_state["password_correct"] = True
-            # 入力したパスワードをセッションに残さない
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if st.session_state.get("password_correct", False):
-        return True
-
-    st.text_input(
-        "パスワード", type="password", on_change=password_entered, key="password"
+    # Streamlit 1.37+ は st.dialog、1.31〜1.36 は st.experimental_dialog
+    dialog_deco = getattr(st, "dialog", None) or getattr(
+        st, "experimental_dialog", None
     )
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("パスワードが違います。")
-    return False
+
+    def login_body():
+        if st.session_state.get("expired"):
+            st.info("一定時間操作がなかったため、ログアウトしました。再度ログインしてください。")
+        st.write("このアプリは保護されています。パスワードを入力してください。")
+        st.text_input("パスワード", type="password", key="pw_input")
+        if st.button("ログイン", type="primary", use_container_width=True):
+            entered = st.session_state.get("pw_input", "")
+            # タイミング攻撃を避けるため定数時間比較を使う
+            if hmac.compare_digest(str(entered), str(expected)):
+                st.session_state["password_correct"] = True
+                st.session_state["last_active"] = time.time()
+                st.session_state.pop("expired", None)
+                st.session_state.pop("pw_input", None)
+                st.rerun()
+            else:
+                st.error("パスワードが違います。")
+
+    if dialog_deco is not None:
+        # モーダルを開くと背景は自動でうす暗くなる
+        @dialog_deco("ログイン")
+        def _modal():
+            login_body()
+
+        _modal()
+    else:
+        st.warning(
+            "お使いの Streamlit はモーダル非対応のため、簡易ログイン画面を表示しています。"
+        )
+        login_body()
 
 
 MODEL_NAME = "gpt-5.2-pro"
+
+SYSTEM_PROMPT = (
+    "あなたは慎重で誠実なITエンジニアのメンターです。次の方針に従ってください。"
+    "肯定・称賛・同意を過度にしない。相手と少し距離を保つ。"
+    "返答はプレーンテキストの文章で行い、見出しやセクション分けをしない。"
+    "ユーザーの主張や案については、誤り・前提の穴・リスク・反例の指摘を"
+    "優先し、必要なら代替案を示す。"
+    "やむを得ない場合を除き箇条書きを使わず、絵文字や表は控えめにする。"
+    "語尾は「です」「ます」など丁寧にし、ぶっきらぼうにしない。"
+    "「いい質問」「鋭い視点」などの前置きの社交辞令は省く。"
+)
 
 
 @st.cache_resource
@@ -65,8 +97,20 @@ def main():
     st.set_page_config(page_title="My Great ChatGPT (GPT-5.2 Pro)", page_icon="🤗")
 
     # --- 認証ゲート（通過するまで以降を実行しない） ---
-    if not check_password():
+    if not st.session_state.get("password_correct", False):
+        render_login()
         st.stop()
+
+    # --- 無操作タイムアウトの判定 ---
+    now = time.time()
+    last_active = st.session_state.get("last_active")
+    if last_active is not None and (now - last_active) > IDLE_TIMEOUT_SECONDS:
+        st.session_state["password_correct"] = False
+        st.session_state["expired"] = True
+        st.session_state.pop("last_active", None)
+        st.rerun()
+    # 操作があったこの実行を最終操作時刻として記録する
+    st.session_state["last_active"] = now
 
     st.header("My Great ChatGPT 5.2 Pro 🤗")
 
@@ -79,6 +123,13 @@ def main():
 
     client = get_client(api_key)
 
+    # --- サイドバー: ログアウト ---
+    if st.sidebar.button("ログアウト", use_container_width=True):
+        st.session_state["password_correct"] = False
+        st.session_state.pop("last_active", None)
+        # 個人利用のため履歴は保持する
+        st.rerun()
+
     # --- サイドバー: Pro モデルは temperature 非対応のため reasoning effort を選ぶ ---
     reasoning_effort = st.sidebar.selectbox(
         "Reasoning effort（推論の強さ）",
@@ -87,7 +138,12 @@ def main():
         help="強くするほど精度は上がりやすい一方、応答時間とコストが増えます。",
     )
 
-    system_prompt = "You are a helpful assistant."
+    # --- サイドバー: Web検索のオン/オフ ---
+    web_search_on = st.sidebar.toggle(
+        "Web検索を使う",
+        value=False,
+        help="オンにすると必要に応じてモデルが Web を検索します。応答時間とコストが増えます。",
+    )
 
     # --- チャット履歴の管理 ---
     if "messages" not in st.session_state:
@@ -108,18 +164,23 @@ def main():
         with st.spinner("GPT-5.2 Pro is thinking...（数分かかる場合があります）"):
             try:
                 # Responses API は role 付きメッセージの配列を input として受け取れる
-                input_messages = [{"role": "system", "content": system_prompt}]
+                input_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
                 for msg in st.session_state.messages:
                     if msg["role"] in ("user", "assistant"):
                         input_messages.append(
                             {"role": msg["role"], "content": msg["content"]}
                         )
 
-                response = client.responses.create(
-                    model=MODEL_NAME,
-                    input=input_messages,
-                    reasoning={"effort": reasoning_effort},
-                )
+                request_kwargs = {
+                    "model": MODEL_NAME,
+                    "input": input_messages,
+                    "reasoning": {"effort": reasoning_effort},
+                }
+                if web_search_on:
+                    # 新しい Responses API 連携では type は "web_search"
+                    request_kwargs["tools"] = [{"type": "web_search"}]
+
+                response = client.responses.create(**request_kwargs)
 
                 # output_text が使えればそれを、無ければ output を走査してテキスト抽出
                 response_text = getattr(response, "output_text", None)
