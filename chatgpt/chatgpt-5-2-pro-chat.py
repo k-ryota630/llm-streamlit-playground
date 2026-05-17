@@ -132,8 +132,8 @@ def main():
 
     # --- サイドバー: Pro モデルは temperature 非対応のため reasoning effort を選ぶ ---
     reasoning_effort = st.sidebar.selectbox(
-        "Reasoning effort（推論の強さ）",
-        options=["medium", "high", "xhigh"],
+        "推論レベル",
+        options=["medium", "high" ],
         index=0,
         help="強くするほど精度は上がりやすい一方、応答時間とコストが増えます。",
     )
@@ -142,7 +142,7 @@ def main():
     web_search_on = st.sidebar.toggle(
         "Web検索を使う",
         value=False,
-        help="オンにすると必要に応じてモデルが Web を検索します。応答時間とコストが増えます。",
+        help="オンにすると必要に応じてモデルがWebを検索します。応答時間とコストが増えます。",
     )
 
     # --- チャット履歴の管理 ---
@@ -161,7 +161,7 @@ def main():
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        with st.spinner("GPT-5.2 Pro is thinking...（数分かかる場合があります）"):
+        with st.spinner("GPT-5.2 Pro is thinking..."):
             try:
                 # Responses API は role 付きメッセージの配列を input として受け取れる
                 input_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
