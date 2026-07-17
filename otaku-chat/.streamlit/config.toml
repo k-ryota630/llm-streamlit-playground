@@ -1,0 +1,11 @@
+[client]
+showErrorDetails = "none"
+toolbarMode = "viewer"
+
+[theme]
+base = "dark"
+primaryColor = "#FF4B4B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1B1F2A"
+textColor = "#FAFAFA"
+font = "sans-serif"
