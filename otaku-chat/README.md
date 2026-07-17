@@ -2,7 +2,7 @@
 
 「ご飯食べていい？ いいよ！ やったー！」のように、一人で問いかけと返答を完結させる会話のノリを、公開モデルとプロンプトで再現するStreamlitアプリです。
 
-元ポストで使われたモデル自体は特定できていません。このリポジトリは、そのモデルを複製したものではありません。Hugging Face Inference Providersで提供中の汎用モデルへ、システムプロンプトと例示を与えて挙動を再現します。
+Hugging Face Inference Providersで提供中のGemma4 API提供サービスを使い、システムプロンプトと例示を与えています。
 
 既定モデルは、Google DeepMindの命令調整済みモデル `google/gemma-4-26B-A4B-it` です。Hugging Face Routerでは `:cheapest` を付け、利用可能なプロバイダのうち出力単価が低い経路を選びます。
 
